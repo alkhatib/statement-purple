@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::process;
 
 fn get_input_file_path() -> Result<String, String> {
@@ -14,7 +15,23 @@ fn get_input_file_path() -> Result<String, String> {
     Ok(path)
 }
 
-fn main() {
+fn process_csv(path: &str) -> Result<(), Box<dyn Error>> {
+    // Parse CSV
+    let mut reader = csv::Reader::from_path(path)?;
+
+    // read the headers
+    let _headers = reader.headers()?;
+
+    // read the records
+    for result in reader.records() {
+        let _record = result?;
+        // TODO: Process the record
+    }
+
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
     let path = match get_input_file_path() {
         Ok(path) => path,
         Err(error_msg) => {
@@ -22,4 +39,8 @@ fn main() {
             process::exit(1);
         }
     };
+
+    process_csv(&path)?;
+
+    Ok(())
 }
