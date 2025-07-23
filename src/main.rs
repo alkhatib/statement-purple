@@ -1,14 +1,25 @@
 use std::process;
 
-fn main() {
+fn get_input_file_path() -> Result<String, String> {
     let arg = std::env::args().nth(1);
     let Some(path) = arg else {
-        eprintln!("Usage: in-gen input_file.csv");
-        process::exit(1);
+        return Err("Usage: in-gen input_file.csv".to_string());
     };
+
     // check that file exists
     if !std::path::Path::new(&path).exists() {
-        eprintln!("file {path} does not exist");
-        process::exit(1);
+        return Err(format!("file {path} does not exist"));
     }
+
+    Ok(path)
+}
+
+fn main() {
+    let path = match get_input_file_path() {
+        Ok(path) => path,
+        Err(error_msg) => {
+            eprintln!("{error_msg}");
+            process::exit(1);
+        }
+    };
 }
