@@ -1,4 +1,4 @@
-use in_gen::{get_input_file_path, process_csv};
+use in_gen::{csv_reader, get_input_file_path};
 use std::error::Error;
 use std::fs::File;
 use std::process;
@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         process::exit(1);
     };
 
-    process_csv(file)?;
+    csv_reader(file);
 
     Ok(())
 }

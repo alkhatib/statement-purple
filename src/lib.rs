@@ -2,7 +2,7 @@ pub mod csv_parsing;
 pub mod types;
 
 // Re-export commonly used types for convenience
-pub use csv_parsing::process_csv;
+pub use csv_parsing::csv_reader;
 pub use types::{Transaction, TransactionType};
 
 pub fn get_input_file_path() -> Result<String, String> {
