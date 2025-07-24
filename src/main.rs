@@ -1,4 +1,4 @@
-use in_gen::{csv_reader, get_input_file_path};
+use in_gen::{csv_reader, get_input_file_path, ledger};
 use std::error::Error;
 use std::fs::File;
 use std::process;
@@ -16,7 +16,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         process::exit(1);
     };
 
-    csv_reader(file);
+    let transaction_reader = csv_reader(file);
+
+    ledger::process_transactions(transaction_reader);
 
     Ok(())
 }
