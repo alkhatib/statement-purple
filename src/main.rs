@@ -1,5 +1,6 @@
 use in_gen::{get_input_file_path, process_csv};
 use std::error::Error;
+use std::fs::File;
 use std::process;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -11,7 +12,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    process_csv(&path)?;
+    let Ok(file) = File::open(path) else {
+        process::exit(1);
+    };
+
+    process_csv(file)?;
 
     Ok(())
 }
