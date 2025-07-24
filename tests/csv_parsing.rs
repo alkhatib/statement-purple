@@ -3,7 +3,6 @@ use predicates::prelude::*;
 use std::error::Error;
 use std::io::Write;
 use std::process::Command;
-use tempfile;
 
 #[test]
 fn csv_file_empty() -> Result<(), Box<dyn Error>> {

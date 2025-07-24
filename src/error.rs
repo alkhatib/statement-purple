@@ -11,10 +11,10 @@ pub enum AppError {
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AppError::MissingArgument(msg) => write!(f, "{}", msg),
-            AppError::FileNotFound(path) => write!(f, "file {} does not exist", path),
-            AppError::IoError(error) => write!(f, "IO error: {}", error),
-            AppError::CsvError(error) => write!(f, "CSV error: {}", error),
+            AppError::MissingArgument(msg) => write!(f, "{msg}"),
+            AppError::FileNotFound(path) => write!(f, "file {path} does not exist"),
+            AppError::IoError(error) => write!(f, "IO error: {error}"),
+            AppError::CsvError(error) => write!(f, "CSV error: {error}"),
         }
     }
 }
