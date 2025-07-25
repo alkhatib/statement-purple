@@ -187,6 +187,82 @@ pub struct Ledger {
     clients: ClientMap,
 }
 
+pub struct ShardedLedger {
+    shards: [Ledger; 4],
+}
+
+impl ShardedLedger {
+    pub fn new() -> Self {
+        ShardedLedger {
+            shards: [
+                Ledger::new(),
+                Ledger::new(),
+                Ledger::new(),
+                Ledger::new(),
+            ],
+        }
+    }
+
+    fn get_shard_index(client_id: u16) -> usize {
+        (client_id % 4) as usize
+    }
+
+    fn get_shard(&mut self, client_id: u16) -> &mut Ledger {
+        let index = Self::get_shard_index(client_id);
+        &mut self.shards[index]
+    }
+
+    pub fn process_transaction(&mut self, transaction: Transaction) -> crate::Result<()> {
+        let shard = self.get_shard(transaction.client);
+        shard.process_transaction(transaction)
+    }
+
+    pub fn get_client(&self, client_id: u16) -> Option<&ClientAccount> {
+        let index = Self::get_shard_index(client_id);
+        self.shards[index].get_client(client_id)
+    }
+
+    pub fn get_client_balance(&self, client_id: u16) -> Option<(Decimal, Decimal, Decimal)> {
+        let index = Self::get_shard_index(client_id);
+        self.shards[index].get_client_balance(client_id)
+    }
+
+    pub fn iter_clients(&self) -> impl Iterator<Item = &ClientAccount> {
+        self.shards.iter().flat_map(|shard| shard.iter_clients())
+    }
+
+    pub fn client_count(&self) -> usize {
+        self.shards.iter().map(|shard| shard.client_count()).sum()
+    }
+
+    pub async fn from_stream<S: TransactionStream>(mut stream: S) -> crate::Result<Self> {
+        let mut ledger = ShardedLedger::new();
+
+        while let Some(transaction) = stream.next_transaction().await? {
+            ledger.process_transaction(transaction)?;
+        }
+
+        Ok(ledger)
+    }
+
+    pub fn from_csv_reader<R: Read>(mut reader: csv::Reader<R>) -> crate::Result<Self> {
+        let mut ledger = ShardedLedger::new();
+
+        for result in reader.deserialize::<Transaction>() {
+            match result {
+                Ok(transaction) => {
+                    ledger.process_transaction(transaction)?;
+                }
+                Err(_) => {
+                    // This is where we can handle any incorrect CSV data
+                    // either by logging or metrics tracking
+                }
+            }
+        }
+        Ok(ledger)
+    }
+}
+
 impl Default for Ledger {
     fn default() -> Self {
         Self::new()

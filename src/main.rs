@@ -1,4 +1,4 @@
-use in_gen::{CsvFileStream, Ledger, error::Result, get_input_file_path};
+use in_gen::{CsvFileStream, ShardedLedger, error::Result, get_input_file_path};
 use std::process;
 
 #[tokio::main]
@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     };
 
     let stream = CsvFileStream::from_path(&path).await?;
-    let ledger = Ledger::from_stream(stream).await?;
+    let ledger = ShardedLedger::from_stream(stream).await?;
 
     // Write client accounts to CSV output
     let mut writer = csv::Writer::from_writer(std::io::stdout());

@@ -7,7 +7,7 @@ pub mod types;
 // Re-export commonly used types for convenience
 pub use crate::error::{AppError, Result};
 pub use csv_parsing::csv_reader;
-pub use ledger::Ledger;
+pub use ledger::{Ledger, ShardedLedger};
 pub use stream::{CsvFileStream, TcpCsvStream, TransactionStream};
 pub use types::{Transaction, TransactionType};
 
