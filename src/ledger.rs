@@ -3,7 +3,7 @@ use std::{fmt::Display, io::Read};
 
 use rust_decimal::{Decimal, RoundingStrategy::MidpointNearestEven};
 
-use crate::Transaction;
+use crate::{Transaction, stream::TransactionStream};
 
 const DECIMAL_PRECISION: u32 = 4;
 
@@ -175,6 +175,10 @@ impl ClientAccount {
     pub fn is_locked(&self) -> bool {
         self.locked
     }
+
+    pub fn client_id(&self) -> u16 {
+        self.client
+    }
 }
 
 type ClientMap = FxHashMap<u16, ClientAccount>;
@@ -211,6 +215,16 @@ impl Ledger {
                 }
             }
         }
+        Ok(ledger)
+    }
+
+    pub async fn from_stream<S: TransactionStream>(mut stream: S) -> crate::Result<Self> {
+        let mut ledger = Ledger::new();
+
+        while let Some(transaction) = stream.next_transaction().await? {
+            ledger.process_transaction(transaction)?;
+        }
+
         Ok(ledger)
     }
 

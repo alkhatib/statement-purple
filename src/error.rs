@@ -6,6 +6,7 @@ pub enum AppError {
     FileNotFound(String),
     IoError(std::io::Error),
     CsvError(csv::Error),
+    CsvAsyncError(csv_async::Error),
 }
 
 impl fmt::Display for AppError {
@@ -15,6 +16,7 @@ impl fmt::Display for AppError {
             AppError::FileNotFound(path) => write!(f, "file {path} does not exist"),
             AppError::IoError(error) => write!(f, "IO error: {error}"),
             AppError::CsvError(error) => write!(f, "CSV error: {error}"),
+            AppError::CsvAsyncError(error) => write!(f, "CSV async error: {error}"),
         }
     }
 }
@@ -30,6 +32,12 @@ impl From<std::io::Error> for AppError {
 impl From<csv::Error> for AppError {
     fn from(err: csv::Error) -> Self {
         AppError::CsvError(err)
+    }
+}
+
+impl From<csv_async::Error> for AppError {
+    fn from(err: csv_async::Error) -> Self {
+        AppError::CsvAsyncError(err)
     }
 }
 

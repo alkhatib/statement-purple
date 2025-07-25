@@ -1,8 +1,8 @@
-use in_gen::{Ledger, csv_reader, error::Result, get_input_file_path};
-use std::fs::File;
+use in_gen::{CsvFileStream, Ledger, error::Result, get_input_file_path};
 use std::process;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let path = match get_input_file_path() {
         Ok(path) => path,
         Err(err) => {
@@ -11,11 +11,8 @@ fn main() -> Result<()> {
         }
     };
 
-    let file = File::open(path)?;
-
-    let transaction_reader = csv_reader(file);
-
-    let ledger = Ledger::from_csv_reader(transaction_reader)?;
+    let stream = CsvFileStream::from_path(&path).await?;
+    let ledger = Ledger::from_stream(stream).await?;
 
     // Write client accounts to CSV output
     let mut writer = csv::Writer::from_writer(std::io::stdout());

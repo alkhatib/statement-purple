@@ -33,3 +33,21 @@ fn csv_extra_whitespace() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[test]
+fn csv_ignore_missing_column_entries() -> Result<(), Box<dyn Error>> {
+    let mut cmd = Command::cargo_bin("in-gen")?;
+    // create a named temp file
+    let mut tmp_file = tempfile::NamedTempFile::new()?;
+
+    // write some line with extra whitespace
+    writeln!(tmp_file, " type , client , tx  ,  amount  ")?;
+    writeln!(tmp_file, "  deposit  ,  1  ,  1  ,  1.00001  ")?;
+    writeln!(tmp_file, "  deposit  ,  1  ,")?;
+
+    cmd.arg(tmp_file.path());
+    // assert that the command succeeds
+    cmd.assert().success();
+
+    Ok(())
+}
