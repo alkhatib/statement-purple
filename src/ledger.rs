@@ -233,76 +233,336 @@ impl Ledger {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use rust_decimal::Decimal;
+
+    // Helper functions for test setup
+    fn create_test_account(client_id: u16) -> ClientAccount {
+        ClientAccount::new(client_id)
+    }
+
+    fn create_account_with_balance(client_id: u16, total: i64, held: i64) -> ClientAccount {
+        let mut account = ClientAccount::new(client_id);
+        account.total = Decimal::new(total, 0);
+        account.held = Decimal::new(held, 0);
+        account.update_available();
+        account
+    }
 
     fn assert_account_invariants(account: &ClientAccount) {
         assert_eq!(account.available, account.total - account.held);
+        assert!(account.total >= Decimal::ZERO);
+        assert!(account.held >= Decimal::ZERO);
+        assert!(account.available >= Decimal::ZERO || account.locked);
     }
 
-    #[test]
-    fn test_add_deposit_transaction_to_account() {
-        let csv_data = "
-            type,client,tx,amount
-            deposit,1,1,1";
-        let csv_bytes = csv_data.as_bytes();
+    // Unit Tests
+    mod unit_tests {
+        use super::*;
 
-        let reader = crate::csv_reader(csv_bytes);
+        #[test]
+        fn test_new_account_has_zero_balance() {
+            // Arrange & Act
+            let account = create_test_account(1);
 
-        let ledger = Ledger::from_csv_reader(reader).unwrap();
-        assert_eq!(ledger.get_client(1).unwrap().total, Decimal::new(1, 0));
-        assert_eq!(ledger.get_client(1).unwrap().transactions.disputable.len(), 1);
-        assert_account_invariants(&ledger.get_client(1).unwrap());
+            // Assert
+            assert_eq!(account.client, 1);
+            assert_eq!(account.total, Decimal::ZERO);
+            assert_eq!(account.held, Decimal::ZERO);
+            assert_eq!(account.available, Decimal::ZERO);
+            assert!(!account.locked);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_deposit_increases_total_and_available() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let deposit_amount = Decimal::new(100, 0);
+
+            // Act
+            let result = account.deposit(1, deposit_amount);
+
+            // Assert
+            assert!(result.is_ok());
+            assert_eq!(account.total, deposit_amount);
+            assert_eq!(account.available, deposit_amount);
+            assert_eq!(account.held, Decimal::ZERO);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_deposit_zero_or_negative_amount_ignored() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let initial_total = account.total;
+
+            // Act & Assert - zero amount
+            assert!(account.deposit(1, Decimal::ZERO).is_ok());
+            assert_eq!(account.total, initial_total);
+
+            // Act & Assert - negative amount
+            assert!(account.deposit(2, Decimal::new(-50, 0)).is_ok());
+            assert_eq!(account.total, initial_total);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_duplicate_deposit_transaction_ignored() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let amount = Decimal::new(100, 0);
+
+            // Act - first deposit
+            assert!(account.deposit(1, amount).is_ok());
+            let balance_after_first = account.total;
+
+            // Act - duplicate transaction
+            assert!(account.deposit(1, amount).is_ok());
+
+            // Assert
+            assert_eq!(account.total, balance_after_first);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_withdrawal_decreases_balance() {
+            // Arrange
+            let mut account = create_account_with_balance(1, 100, 0);
+
+            // Act
+            let result = account.withdraw(1, Decimal::new(30, 0));
+
+            // Assert
+            assert!(result.is_ok());
+            assert_eq!(account.total, Decimal::new(70, 0));
+            assert_eq!(account.available, Decimal::new(70, 0));
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_withdrawal_insufficient_funds_ignored() {
+            // Arrange
+            let mut account = create_account_with_balance(1, 50, 0);
+            let initial_total = account.total;
+
+            // Act - try to withdraw more than available
+            let result = account.withdraw(1, Decimal::new(100, 0));
+
+            // Assert
+            assert!(result.is_ok());
+            assert_eq!(account.total, initial_total); // Balance unchanged
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_dispute_moves_funds_to_held() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let amount = Decimal::new(100, 0);
+            account.deposit(1, amount).unwrap();
+
+            // Act
+            let result = account.dispute(1);
+
+            // Assert
+            assert!(result.is_ok());
+            assert_eq!(account.total, amount);
+            assert_eq!(account.held, amount);
+            assert_eq!(account.available, Decimal::ZERO);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_dispute_nonexistent_transaction_ignored() {
+            // Arrange
+            let mut account = create_account_with_balance(1, 100, 0);
+            let initial_state = (account.total, account.held, account.available);
+
+            // Act
+            let result = account.dispute(999); // Non-existent transaction
+
+            // Assert
+            assert!(result.is_ok());
+            assert_eq!(
+                (account.total, account.held, account.available),
+                initial_state
+            );
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_resolve_dispute_releases_held_funds() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let amount = Decimal::new(100, 0);
+            account.deposit(1, amount).unwrap();
+            account.dispute(1).unwrap();
+
+            // Act
+            let result = account.resolve(1);
+
+            // Assert
+            assert!(result.is_ok());
+            assert_eq!(account.total, amount);
+            assert_eq!(account.held, Decimal::ZERO);
+            assert_eq!(account.available, amount);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_chargeback_locks_account_and_removes_funds() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let amount = Decimal::new(100, 0);
+            account.deposit(1, amount).unwrap();
+            account.dispute(1).unwrap();
+
+            // Act
+            let result = account.chargeback(1);
+
+            // Assert
+            assert!(result.is_ok());
+            assert!(account.locked);
+            assert_eq!(account.total, Decimal::ZERO);
+            assert_eq!(account.held, Decimal::ZERO);
+            assert_eq!(account.available, Decimal::ZERO);
+        }
+
+        #[test]
+        fn test_locked_account_ignores_all_operations() {
+            // Arrange
+            let mut account = create_test_account(1);
+            account.locked = true;
+
+            // Act & Assert - all operations should be ignored
+            assert!(account.deposit(1, Decimal::new(100, 0)).is_ok());
+            assert_eq!(account.total, Decimal::ZERO);
+
+            assert!(account.withdraw(2, Decimal::new(50, 0)).is_ok());
+            assert_eq!(account.total, Decimal::ZERO);
+
+            assert!(account.dispute(3).is_ok());
+            assert_eq!(account.held, Decimal::ZERO);
+
+            assert_account_invariants(&account);
+        }
     }
 
-    #[test]
-    fn test_withdrawal_transaction_to_account() {
-        let csv_data = "
-            type,client,tx,amount
-            deposit,1,1,10
-            withdrawal,1,1,5";
-        let csv_bytes = csv_data.as_bytes();
+    // Property-Based Testing
+    mod property_tests {
+        use super::*;
+        use proptest::prelude::*;
 
-        let reader = crate::csv_reader(csv_bytes);
+        proptest! {
+        #[test]
+        fn test_account_invariants_always_hold(
+            deposits in prop::collection::vec(1u32..1000, 0..10),
+            amounts in prop::collection::vec(1i64..10000, 0..10)
+        ) {
+            let mut account = create_test_account(1);
 
-        let ledger = Ledger::from_csv_reader(reader).unwrap();
-        assert_eq!(ledger.get_client(1).unwrap().available, Decimal::new(5, 0));
-        assert_account_invariants(&ledger.get_client(1).unwrap());
+            // Apply random deposits
+            for (i, &amount) in amounts.iter().enumerate() {
+                if i < deposits.len() {
+                    let _ = account.deposit(deposits[i], Decimal::new(amount, 0));
+                }
+            }
+
+            // Invariants should always hold
+            assert_account_invariants(&account);
+            prop_assert!(account.total >= Decimal::ZERO);
+            prop_assert!(account.held >= Decimal::ZERO);
+            prop_assert!(account.available == account.total - account.held);
+        }
+
+        #[test]
+        fn test_deposit_then_dispute_maintains_total(
+            tx_id in 1u32..1000,
+            amount in 1i64..10000
+        ) {
+            let mut account = create_test_account(1);
+            let deposit_amount = Decimal::new(amount, 0);
+
+            // Deposit then dispute
+            account.deposit(tx_id, deposit_amount).unwrap();
+            let total_before_dispute = account.total;
+            account.dispute(tx_id).unwrap();
+
+            // Total should remain the same, just moved to held
+            prop_assert_eq!(account.total, total_before_dispute);
+            prop_assert_eq!(account.held, deposit_amount);
+            prop_assert_eq!(account.available, Decimal::ZERO);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_withdrawal_never_exceeds_available(
+            initial_amount in 1i64..10000,
+            withdrawal_amount in 1i64..20000
+        ) {
+            let mut account = create_account_with_balance(1, initial_amount, 0);
+            let initial_available = account.available;
+
+            account.withdraw(1, Decimal::new(withdrawal_amount, 0)).unwrap();
+
+            // Available funds should never go negative (unless locked)
+            if !account.locked {
+                prop_assert!(account.available >= Decimal::ZERO);
+            }
+
+            // If withdrawal was larger than available, balance shouldn't change
+            if Decimal::new(withdrawal_amount, 0) > initial_available {
+                prop_assert_eq!(account.total, Decimal::new(initial_amount, 0));
+            }
+
+            assert_account_invariants(&account);
+        }
+             }
     }
 
-    #[test]
-    fn test_dispute_transaction_to_account() {
-        let csv_data = "
-            type,client,tx,amount
-            deposit,1,1,10
-            dispute,1,1";
-        let csv_bytes = csv_data.as_bytes();
+    // Integration tests using CSV
+    mod integration_tests {
+        use super::*;
 
-        let reader = crate::csv_reader(csv_bytes);
+        #[test]
+        fn test_complete_transaction_flow() {
+            let csv_data = "
+                type,client,tx,amount
+                deposit,1,1,100
+                deposit,1,2,50
+                withdrawal,1,3,25
+                dispute,1,1
+                resolve,1,1";
+            let csv_bytes = csv_data.as_bytes();
+            let reader = crate::csv_reader(csv_bytes);
 
-        let ledger = Ledger::from_csv_reader(reader).unwrap();
-        assert_eq!(ledger.get_client(1).unwrap().held, Decimal::new(10, 0));
-        assert_eq!(ledger.get_client(1).unwrap().transactions.disputable.len(), 0);
-        assert_eq!(ledger.get_client(1).unwrap().transactions.disputed.len(), 1);
-        assert_account_invariants(&ledger.get_client(1).unwrap());
-    }
+            let ledger = Ledger::from_csv_reader(reader).unwrap();
+            let client = ledger.get_client(1).unwrap();
 
-    #[test]
-    fn test_resolve_transaction_to_account() {
-        let csv_data = "
-            type,client,tx,amount
-            deposit,1,1,10
-            dispute,1,1
-            resolve,1,1";
+            assert_eq!(client.total, Decimal::new(125, 0)); // 100 + 50 - 25
+            assert_eq!(client.held, Decimal::new(0, 0));
+            assert_eq!(client.available, Decimal::new(125, 0));
+            assert!(!client.locked);
+            assert_account_invariants(client);
+        }
 
-        let csv_bytes = csv_data.as_bytes();
+        #[test]
+        fn test_chargeback_scenario() {
+            let csv_data = "
+                type,client,tx,amount
+                deposit,1,1,100
+                dispute,1,1
+                chargeback,1,1";
+            let csv_bytes = csv_data.as_bytes();
+            let reader = crate::csv_reader(csv_bytes);
 
-        let reader = crate::csv_reader(csv_bytes);
+            let ledger = Ledger::from_csv_reader(reader).unwrap();
+            let client = ledger.get_client(1).unwrap();
 
-        let ledger = Ledger::from_csv_reader(reader).unwrap();
-        assert_eq!(ledger.get_client(1).unwrap().held, Decimal::new(0, 0));
-        assert_eq!(ledger.get_client(1).unwrap().transactions.disputable.len(), 1);
-        assert_account_invariants(&ledger.get_client(1).unwrap());
+            assert_eq!(client.total, Decimal::new(0, 0));
+            assert_eq!(client.held, Decimal::new(0, 0));
+            assert_eq!(client.available, Decimal::new(0, 0));
+            assert!(client.locked);
+        }
     }
 }
-
