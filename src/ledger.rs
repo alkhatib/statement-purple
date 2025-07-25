@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Read};
+use std::{collections::HashMap, fmt::Display, io::Read};
 
 use rust_decimal::Decimal;
 
@@ -28,6 +28,20 @@ pub struct ClientAccount {
     locked: bool,
     #[serde(skip)] // Private do not serialize TODO: Separate Output Struct
     transactions: ClientTransactions,
+}
+
+impl Display for ClientAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ClientAccount {{ client_id: {client}, total: {total}, held: {held}, available: {available}, locked: {locked} }}",
+            client = self.client,
+            total = self.total,
+            held = self.held,
+            available = self.available,
+            locked = self.locked,
+        )
+    }
 }
 
 impl ClientAccount {
