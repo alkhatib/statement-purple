@@ -238,4 +238,9 @@ mod tests {
         assert_eq!(ledger.get_client(1).unwrap().total, Decimal::new(1, 0));
         assert_account_invariants(&ledger.get_client(1).unwrap());
     }
+
+    #[test]
+    fn test_failing_test() {
+        assert!(false, "implement tests for all Transaction types")
+    }
 }

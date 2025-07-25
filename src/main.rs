@@ -20,8 +20,10 @@ fn main() -> Result<()> {
     // Example: Print client balances
     for client_account in ledger.iter_clients() {
         // TODO: Implement Display and Serialization
-        println!("{client_account:?}");
+        println!("{client_account}");
     }
+
+    // TODO: Write to CSV output
 
     Ok(())
 }
