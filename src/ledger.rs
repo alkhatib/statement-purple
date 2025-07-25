@@ -456,6 +456,12 @@ mod tests {
             assert!(account.dispute(3).is_ok());
             assert_eq!(account.held, Decimal::ZERO);
 
+            assert!(account.resolve(3).is_ok());
+            assert_eq!(account.held, Decimal::ZERO);
+
+            assert!(account.chargeback(3).is_ok());
+            assert_eq!(account.held, Decimal::ZERO);
+
             assert_account_invariants(&account);
         }
 
