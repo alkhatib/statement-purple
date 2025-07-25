@@ -40,45 +40,133 @@ impl ClientAccount {
     }
 
     fn deposit(&mut self, tx_id: u32, amount: Option<Decimal>) {
-        match amount {
-            None => (),
-            Some(amount) => {
-                self.total += amount;
-                self.transactions.disputable.insert(tx_id, amount);
-            }
+        if let Some(amount) = amount {
+            self.total += amount;
+            self.transactions.disputable.insert(tx_id, amount);
         }
     }
 }
 
 type ClientMap = HashMap<u16, ClientAccount>;
 
-pub fn process_transactions<R: Read>(mut reader: csv::Reader<R>) -> crate::Result<ClientMap> {
-    let mut client_map = ClientMap::new();
+pub struct Ledger {
+    clients: ClientMap,
+}
 
-    for result in reader.deserialize::<Transaction>() {
-        match result {
-            Ok(transaction) => {
-                println!("{transaction:?}");
-                match transaction.transaction_type {
-                    crate::TransactionType::Deposit => {
-                        //check the hashmap
-                        let client_account = client_map
-                            .entry(transaction.client)
-                            .or_insert(ClientAccount::new(transaction.client));
-                        client_account.deposit(transaction.tx_id, transaction.amount);
-                    }
-                    crate::TransactionType::Withdrawal => (),
-                    crate::TransactionType::Dispute => (),
-                    crate::TransactionType::Resolve => (),
-                    crate::TransactionType::Chargeback => (),
+impl Default for Ledger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Ledger {
+    pub fn new() -> Self {
+        Ledger {
+            clients: ClientMap::new(),
+        }
+    }
+
+    pub fn from_csv_reader<R: Read>(mut reader: csv::Reader<R>) -> crate::Result<Self> {
+        let mut ledger = Ledger::new();
+
+        for result in reader.deserialize::<Transaction>() {
+            match result {
+                Ok(transaction) => {
+                    println!("{transaction:?}");
+                    ledger.process_transaction(transaction)?;
+                }
+                Err(_) => {
+                    println!("error")
                 }
             }
-            Err(_) => {
-                println!("error")
+        }
+        Ok(ledger)
+    }
+
+    fn process_transaction(&mut self, transaction: Transaction) -> crate::Result<()> {
+        match transaction.transaction_type {
+            crate::TransactionType::Deposit => {
+                self.process_deposit(transaction.client, transaction.tx_id, transaction.amount)
+            }
+            crate::TransactionType::Withdrawal => {
+                self.process_withdrawal(transaction.client, transaction.tx_id, transaction.amount)
+            }
+            crate::TransactionType::Dispute => {
+                self.process_dispute(transaction.client, transaction.tx_id)
+            }
+            crate::TransactionType::Resolve => {
+                self.process_resolve(transaction.client, transaction.tx_id)
+            }
+            crate::TransactionType::Chargeback => {
+                self.process_chargeback(transaction.client, transaction.tx_id)
             }
         }
     }
-    Ok(client_map)
+
+    fn process_deposit(
+        &mut self,
+        client_id: u16,
+        tx_id: u32,
+        amount: Option<Decimal>,
+    ) -> crate::Result<()> {
+        let client_account = self
+            .clients
+            .entry(client_id)
+            .or_insert(ClientAccount::new(client_id));
+        client_account.deposit(tx_id, amount);
+        Ok(())
+    }
+
+    fn process_withdrawal(
+        &mut self,
+        client_id: u16,
+        tx_id: u32,
+        amount: Option<Decimal>,
+    ) -> crate::Result<()> {
+        if let Some(client_account) = self.clients.get_mut(&client_id) {
+            // TODO: Implement withdrawal logic
+        }
+        Ok(())
+    }
+
+    fn process_dispute(&mut self, client_id: u16, tx_id: u32) -> crate::Result<()> {
+        if let Some(client_account) = self.clients.get_mut(&client_id) {
+            // TODO: Implement dispute logic
+        }
+        Ok(())
+    }
+
+    fn process_resolve(&mut self, client_id: u16, tx_id: u32) -> crate::Result<()> {
+        if let Some(client_account) = self.clients.get_mut(&client_id) {
+            // TODO: Implement resolve logic
+        }
+        Ok(())
+    }
+
+    fn process_chargeback(&mut self, client_id: u16, tx_id: u32) -> crate::Result<()> {
+        if let Some(client_account) = self.clients.get_mut(&client_id) {
+            // TODO: Implement chargeback logic
+        }
+        Ok(())
+    }
+
+    pub fn get_client(&self, client_id: u16) -> Option<&ClientAccount> {
+        self.clients.get(&client_id)
+    }
+
+    pub fn get_client_balance(&self, client_id: u16) -> Option<(Decimal, Decimal)> {
+        self.clients
+            .get(&client_id)
+            .map(|client| (client.total, client.held))
+    }
+
+    pub fn iter_clients(&self) -> impl Iterator<Item = (&u16, &ClientAccount)> {
+        self.clients.iter()
+    }
+
+    pub fn client_count(&self) -> usize {
+        self.clients.len()
+    }
 }
 
 #[cfg(test)]
@@ -95,7 +183,7 @@ mod tests {
 
         let reader = crate::csv_reader(csv_bytes);
 
-        let result = process_transactions(reader).unwrap();
-        assert_eq!(result.get(&1u16).unwrap().total, Decimal::new(1, 0));
+        let ledger = Ledger::from_csv_reader(reader).unwrap();
+        assert_eq!(ledger.get_client(1).unwrap().total, Decimal::new(1, 0));
     }
 }

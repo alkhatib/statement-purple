@@ -6,7 +6,7 @@ pub mod types;
 // Re-export commonly used types for convenience
 pub use crate::error::{AppError, Result};
 pub use csv_parsing::csv_reader;
-pub use ledger::process_transactions;
+pub use ledger::Ledger;
 pub use types::{Transaction, TransactionType};
 
 pub fn get_input_file_path() -> Result<String> {
