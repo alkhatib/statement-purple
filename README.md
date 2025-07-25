@@ -13,30 +13,30 @@ cargo run -- transactions.csv > accounts.csv
 The system consists of several key components:
 
 - **Ledger**: Main transaction processing engine that manages client accounts
-- **ClientAccount**: Individual account state with balance tracking and transaction history
+- **ClientAccount**: Individual account state with balance tracking and some transaction history for dispute resolution.
 - **Transaction Types**: Deposit, Withdrawal, Dispute, Resolve, Chargeback
 - **CSV Processing**: Flexible parsing with error handling for malformed data
 
 ## Key Features
 
-- **Decimal Precision**: All monetary amounts use 4 decimal places with banker's rounding
+- **Decimal Precision**: Using `rust_decimal`: monetary amounts use 4 decimal places with banker's rounding
 - **Account Safety**: Prevents overdrafts and maintains account invariants
-- **Dispute Handling**: Complete dispute resolution workflow including chargebacks
-- **Error Resilience**: Graceful handling of malformed CSV data and invalid operations
-- **Memory Efficiency**: Uses `FxHashMap` for O(1) client lookups and transaction tracking
+- **Dispute Handling**: dispute resolution workflow including chargebacks and account locking
+- **Error Resilience**: Skipping of malformed CSV data and invalid operations
+- **Memory Efficiency**: Handling one CSV record at a time, saving only necessary transaction data for disputes
 
 ## Assumptions
 
 ### Transaction Processing
-- **Only available funds are allowed for withdrawal** (`src/ledger.rs:113`): Withdrawals that exceed available balance are ignored
-- **Resolved transactions can be disputed again in the future** (`src/ledger.rs:143`): After a dispute is resolved, the transaction becomes disputable again
-- **All amounts in the CSV are correctly formatted with 4 decimal places** (`src/ledger.rs:205`): The system expects properly formatted decimal inputs
+- **Only available funds are allowed for withdrawal**: Withdrawals that exceed available balance are ignored
+- **Resolved transactions can be disputed again in the future**: After a dispute is resolved, the transaction becomes disputable again (in real life there could be a limit of number of disputes or days since transaction)
+- **All amounts in the CSV are correctly formatted with 4 decimal places**: The system expects properly formatted decimal inputs (Amounts could be rounded if necessary)
 
 ### Data Handling
-- **Duplicate transaction IDs are silently ignored**: If a transaction ID already exists (either as disputable or disputed), new transactions with the same ID are ignored
+- **Duplicate transaction IDs are silently ignored**: If a transaction ID already exists (either as disputable or disputed), new deposit/withdraw transactions with the same ID are ignored
 - **Zero or negative deposit/withdrawal amounts are ignored**: The system only processes positive amounts for deposits and withdrawals
 - **Invalid CSV rows are silently skipped**: Malformed CSV data doesn't stop processing; it's simply ignored
-- **Whitespace is automatically trimmed**: CSV parser handles whitespace around values
+- **Whitespace is automatically trimmed**: CSV parser handles whitespace around values and strips it.
 
 ### Account Management
 - **Transactions on locked accounts are ignored**: Once an account is locked due to chargeback, all subsequent transactions are ignored
@@ -44,16 +44,14 @@ The system consists of several key components:
 - **Account balances never go negative**: Withdrawal requests exceeding available funds are rejected
 
 ### Business Logic
-- **Transaction IDs are globally unique**: Transaction IDs are unique across all clients, not per-client
 - **Disputes only apply to deposits**: Only deposit transactions can be disputed (withdrawals cannot be disputed)
 - **Chargebacks immediately lock accounts**: Any chargeback permanently locks the client account
 - **Disputes must exist before resolution/chargeback**: Resolve and chargeback operations require the transaction to be in disputed state
 
 ### Technical Implementation
 - **Banker's rounding is used for all calculations**: Uses `MidpointNearestEven` rounding strategy for decimal operations
-- **Single-threaded processing**: No explicit synchronization mechanisms for concurrent access
-- **Memory-resident processing**: All data is kept in memory during processing
-- **4 decimal place precision**: All monetary amounts maintain exactly 4 decimal places
+- **Single-threaded processing**: No explicit synchronization mechanisms for concurrent access (An expirement was performed in https://github.com/alkhatib/statement-purple/pull/1)
+- **Memory-resident processing**: All data is kept in memory during processing (Assumptions made that transactions are evenly split between deposits/withdrawals for a client, disputes are a small percentage of the overall transactions)
 
 ## Testing Strategy
 
@@ -64,11 +62,13 @@ The codebase includes comprehensive testing:
 - **Property-Based Tests**: Randomized testing to verify invariants always hold
 - **Precision Tests**: Decimal rounding and precision handling verification
 - **Edge Case Tests**: Error conditions and boundary value testing
-
+- **Code coverage**: Reports generated using tarpaulin
 Key invariants tested:
 - `available = total - held`
 - `total >= 0`, `held >= 0`
-- `available >= 0` (unless account is locked)
+- `available >= 0`
+
+
 
 ## LLM-Assisted Coding
 
@@ -92,23 +92,23 @@ The system handles various error conditions gracefully:
 
 ## Performance Considerations
 
-- **O(1) client lookups**: Uses `FxHashMap` for fast client account access
 - **O(1) transaction history**: Efficient dispute/resolve tracking per client
 - **Memory streaming**: CSV reader processes data incrementally
 - **Minimal allocations**: Efficient data structures for large transaction volumes
 
 ## Future Improvements
 
+###
+
 ### Scalability
 - **Database persistence**: Move from in-memory to persistent storage for large datasets
-- **Streaming processing**: Implement true streaming for very large CSV files
+- **CSV processing**: Reduce memory allocation using recommendations: https://docs.rs/csv/latest/csv/tutorial/index.html#amortizing-allocations
 - **Concurrent processing**: Add support for parallel transaction processing
 - **Partitioning**: Implement client-based partitioning for horizontal scaling
 
 #### Streaming Architecture for TCP Support
 
-The current implementation uses a TransactionStream trait abstraction that makes it trivial to extend from file-based processing to handling thousands of concurrent TCP streams. The architecture already includes:
-
+The future implementation could implement a TransactionStream trait abstraction that makes it trivial to extend from file-based processing to handling thousands of concurrent TCP streams. 
 - **Async-first design**: Built on Tokio for non-blocking I/O operations
 - **Stream abstraction**: Generic TransactionStream trait allows easy addition of new input sources (TCP, WebSocket, Kafka, etc.)
 - **Concurrent-ready state**: Uses RwLock for thread-safe account access with optimized read/write patterns
