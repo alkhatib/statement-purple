@@ -67,10 +67,10 @@ pub fn process_transactions<R: Read>(mut reader: csv::Reader<R>) -> crate::Resul
                             .or_insert(ClientAccount::new(transaction.client));
                         client_account.deposit(transaction.tx_id, transaction.amount);
                     }
-                    crate::TransactionType::Withdrawal => todo!(),
-                    crate::TransactionType::Dispute => todo!(),
-                    crate::TransactionType::Resolve => todo!(),
-                    crate::TransactionType::Chargeback => todo!(),
+                    crate::TransactionType::Withdrawal => (),
+                    crate::TransactionType::Dispute => (),
+                    crate::TransactionType::Resolve => (),
+                    crate::TransactionType::Chargeback => (),
                 }
             }
             Err(_) => {
@@ -84,7 +84,7 @@ pub fn process_transactions<R: Read>(mut reader: csv::Reader<R>) -> crate::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use rust_decimal::Decimal;
 
     #[test]
