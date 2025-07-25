@@ -1,8 +1,10 @@
 use std::{collections::HashMap, fmt::Display, io::Read};
 
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, RoundingStrategy::MidpointNearestEven};
 
 use crate::Transaction;
+
+const DECIMAL_PRECISION: u32 = 4;
 
 #[derive(Debug)]
 struct ClientTransactions {
@@ -57,7 +59,21 @@ impl ClientAccount {
     }
 
     fn update_available(&mut self) {
-        self.available = self.total - self.held;
+        self.available =
+            (self.total - self.held).round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+    }
+
+    fn modify_total(&mut self, amount: Decimal) {
+        // FIXME: What if an amount is not set to 4 decimal places?
+        self.total =
+            (self.total + amount).round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+        self.update_available();
+    }
+
+    fn modify_held(&mut self, amount: Decimal) {
+        self.held =
+            (self.held + amount).round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+        self.update_available();
     }
 
     fn deposit(&mut self, tx_id: u32, amount: Decimal) -> crate::Result<()> {
@@ -77,8 +93,8 @@ impl ClientAccount {
             return Ok(()); // duplicate transaction id
         }
 
-        self.total += amount;
-        self.update_available();
+        self.modify_total(amount);
+        let amount = amount.round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
         self.transactions.disputable.insert(tx_id, amount);
 
         Ok(())
@@ -95,8 +111,7 @@ impl ClientAccount {
 
         // Assumption: only available funds are allowed for withdrawal
         if amount <= self.available() {
-            self.total -= amount;
-            self.update_available();
+            self.modify_total(-amount);
         }
 
         Ok(())
@@ -109,8 +124,7 @@ impl ClientAccount {
 
         if let Some(amount) = self.transactions.disputable.remove(&tx_id) {
             // TODO: check if the amount is sufficient?
-            self.held += amount;
-            self.update_available();
+            self.modify_held(amount);
             self.transactions.disputed.insert(tx_id, amount);
         }
         Ok(())
@@ -123,8 +137,7 @@ impl ClientAccount {
 
         if let Some(amount) = self.transactions.disputed.remove(&tx_id) {
             // TODO: check if the amount is sufficient?
-            self.held -= amount;
-            self.update_available(); // FIXME: better method to keep this in sync
+            self.modify_held(-amount);
 
             // Assumption: Resolved transactions can be disputed again in the future
             self.transactions.disputable.insert(tx_id, amount);
@@ -140,8 +153,8 @@ impl ClientAccount {
         if let Some(amount) = self.transactions.disputed.remove(&tx_id) {
             self.locked = true;
             // TODO: can total or held be less that amount?
-            self.total -= amount;
-            self.held -= amount;
+            self.modify_total(-amount);
+            self.modify_held(-amount);
         }
         Ok(())
     }
@@ -188,6 +201,7 @@ impl Ledger {
         for result in reader.deserialize::<Transaction>() {
             match result {
                 Ok(transaction) => {
+                    // Assumption: All amounts in the csv are correctly formatted with 4 decimal places
                     ledger.process_transaction(transaction)?;
                 }
                 Err(_) => {
@@ -264,6 +278,8 @@ mod tests {
         assert_eq!(account.available, account.total - account.held);
         assert!(account.total >= Decimal::ZERO);
         assert!(account.held >= Decimal::ZERO);
+        println!("account.available: {}", account.available);
+        println!("account.locked: {}", account.locked);
         assert!(account.available >= Decimal::ZERO || account.locked);
     }
 
@@ -473,7 +489,7 @@ mod tests {
             account.dispute(1).unwrap();
 
             // Act
-            let display_string = format!("{}", account);
+            let display_string = format!("{account}");
 
             // Assert
             assert!(display_string.contains("client_id: 123"));
@@ -734,6 +750,233 @@ mod tests {
             let ledger = result.unwrap();
             let client = ledger.get_client(1).unwrap();
             assert_eq!(client.total(), Decimal::new(50, 0)); // 100 - 50
+        }
+
+        // Tests for new decimal precision and rounding functionality
+        #[test]
+        fn test_decimal_precision_constant() {
+            // Verify the precision constant is correctly set
+            assert_eq!(DECIMAL_PRECISION, 4);
+        }
+
+        #[test]
+        fn test_modify_total_with_rounding() {
+            // Arrange
+            let mut account = create_test_account(1);
+
+            // Act - add amount that needs rounding
+            account.modify_total(Decimal::new(123456789, 5)); // 1234.56789
+
+            // Assert - should be rounded to 4 decimal places
+            assert_eq!(account.total(), Decimal::new(12345679, 4)); // 1234.5679
+            assert_eq!(account.available(), Decimal::new(12345679, 4));
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_modify_held_with_rounding() {
+            // Arrange
+            let mut account = create_test_account(1);
+            account.modify_total(Decimal::new(10000, 0)); // Set some total first
+
+            // Act - add held amount that needs rounding
+            account.modify_held(Decimal::new(123456789, 5)); // 1234.56789
+
+            // Assert - should be rounded to 4 decimal places
+            assert_eq!(account.held(), Decimal::new(12345679, 4)); // 1234.5678
+            assert_eq!(
+                account.available(),
+                Decimal::new(10000, 0) - Decimal::new(12345679, 4)
+            );
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_update_available_with_rounding() {
+            // Arrange
+            let mut account = create_test_account(1);
+            account.total = Decimal::new(1000123456789, 7); // 100.0123456789
+            account.held = Decimal::new(500123456789, 7); // 50.0123456789
+
+            // Act
+            account.update_available();
+
+            // Assert - available should be rounded to 4 decimal places
+            let expected_available = (Decimal::new(1000123456789, 7)
+                - Decimal::new(500123456789, 7))
+            .round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+            assert_eq!(account.available(), expected_available);
+            assert_eq!(account.available().scale(), 4);
+        }
+
+        #[test]
+        fn test_deposit_with_high_precision_amount() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let high_precision_amount = Decimal::new(1000123456789, 7); // 100.0123456789
+
+            // Act
+            let result = account.deposit(1, high_precision_amount);
+
+            // Assert - amount should be rounded to 4 decimal places
+            assert!(result.is_ok());
+            assert_eq!(account.total().scale(), 4);
+            assert_eq!(account.available().scale(), 4);
+            let expected_rounded = high_precision_amount
+                .round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+            assert_eq!(account.total(), expected_rounded);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_dispute_with_precise_amounts() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let precise_amount = Decimal::new(123456789, 5); // 1234.56789
+            account.deposit(1, precise_amount).unwrap();
+
+            // Act
+            let result = account.dispute(1);
+
+            // Assert - held amount should be properly rounded
+            assert!(result.is_ok());
+            assert_eq!(account.held().scale(), 4);
+            assert_eq!(account.available().scale(), 4);
+            let expected_rounded =
+                precise_amount.round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+            assert_eq!(account.held(), expected_rounded);
+            assert_eq!(account.available(), Decimal::ZERO);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_resolve_with_precise_amounts() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let precise_amount = Decimal::new(123456789, 5); // 1234.56789
+            account.deposit(1, precise_amount).unwrap();
+            account.dispute(1).unwrap();
+
+            // Act
+            let result = account.resolve(1);
+
+            // Assert - amounts should maintain precision
+            assert!(result.is_ok());
+            assert_eq!(account.held(), Decimal::ZERO);
+            assert_eq!(account.available().scale(), 4);
+            let expected_rounded =
+                precise_amount.round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+            assert_eq!(account.available(), expected_rounded);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_chargeback_with_precise_amounts() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let precise_amount = Decimal::new(123456789, 5); // 1234.56789
+            account.deposit(1, precise_amount).unwrap();
+            account.dispute(1).unwrap();
+
+            // Act
+            let result = account.chargeback(1);
+
+            // Assert - final amounts should be zero and properly rounded
+            assert!(result.is_ok());
+            assert!(account.is_locked());
+            assert_eq!(account.total(), Decimal::ZERO);
+            assert_eq!(account.held(), Decimal::ZERO);
+            assert_eq!(account.available(), Decimal::ZERO);
+        }
+
+        #[test]
+        fn test_multiple_operations_maintain_precision() {
+            // Arrange
+            let mut account = create_test_account(1);
+
+            // Act - perform multiple operations with varying precision
+            account.deposit(1, Decimal::new(1000001, 4)).unwrap(); // 100.0001
+            account.deposit(2, Decimal::new(2000002, 4)).unwrap(); // 200.0002
+            account.withdraw(3, Decimal::new(500003, 4)).unwrap(); // 50.0003
+
+            // Assert - all amounts should maintain 4 decimal precision
+            assert_eq!(account.total().scale(), 4);
+            assert_eq!(account.available().scale(), 4);
+            assert_eq!(account.held().scale(), 4);
+
+            let expected_total =
+                Decimal::new(1000001, 4) + Decimal::new(2000002, 4) - Decimal::new(500003, 4);
+            assert_eq!(
+                account.total(),
+                expected_total.round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven)
+            );
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_precision_edge_case_very_small_amounts() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let very_small_amount = Decimal::new(1, 8); // 0.00000001
+
+            // Act
+            account.deposit(1, very_small_amount).unwrap();
+
+            // Assert - very small amounts should be handled correctly
+            assert_eq!(account.total().scale(), 4);
+            let expected =
+                very_small_amount.round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+            assert_eq!(account.total(), expected);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_precision_edge_case_very_large_amounts() {
+            // Arrange
+            let mut account = create_test_account(1);
+            let very_large_amount = Decimal::new(99999999999999999, 4); // 9999999999999.9999
+
+            // Act
+            account.deposit(1, very_large_amount).unwrap();
+
+            // Assert - very large amounts should be handled correctly
+            assert_eq!(account.total().scale(), 4);
+            let expected =
+                very_large_amount.round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+            assert_eq!(account.total(), expected);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn debug_rounding_behavior() {
+            use rust_decimal::{Decimal, RoundingStrategy::MidpointNearestEven};
+
+            let input = Decimal::new(123456789, 5); // 1234.56789
+            println!("Input: {} (scale: {})", input, input.scale());
+
+            let rounded = input.round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+            println!("Rounded: {} (scale: {})", rounded, rounded.scale());
+
+            // Test edge cases
+            let edge1 = Decimal::new(12345, 4); // 1.2345
+            let edge1_rounded = edge1.round_dp_with_strategy(3, MidpointNearestEven);
+            println!(
+                "Edge1: {} -> {} (scale: {})",
+                edge1,
+                edge1_rounded,
+                edge1_rounded.scale()
+            );
+
+            // Test very large number
+            let large = Decimal::new(999999999999999, 2); // 9999999999999.99
+            println!("Large: {} (scale: {})", large, large.scale());
+            let large_rounded =
+                large.round_dp_with_strategy(DECIMAL_PRECISION, MidpointNearestEven);
+            println!(
+                "Large rounded: {} (scale: {})",
+                large_rounded,
+                large_rounded.scale()
+            );
         }
     }
 
