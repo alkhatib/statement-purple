@@ -458,6 +458,277 @@ mod tests {
 
             assert_account_invariants(&account);
         }
+
+        #[test]
+        fn test_display_implementation() {
+            // Arrange
+            let mut account = create_test_account(123);
+            account.deposit(1, Decimal::new(100, 0)).unwrap();
+            account.dispute(1).unwrap();
+
+            // Act
+            let display_string = format!("{}", account);
+
+            // Assert
+            assert!(display_string.contains("client_id: 123"));
+            assert!(display_string.contains("total: 100"));
+            assert!(display_string.contains("held: 100"));
+            assert!(display_string.contains("available: 0"));
+            assert!(display_string.contains("locked: false"));
+        }
+
+        #[test]
+        fn test_withdrawal_zero_or_negative_amount_ignored() {
+            // Arrange
+            let mut account = create_account_with_balance(1, 100, 0);
+            let initial_total = account.total;
+
+            // Act & Assert - zero amount
+            assert!(account.withdraw(1, Decimal::ZERO).is_ok());
+            assert_eq!(account.total, initial_total);
+
+            // Act & Assert - negative amount
+            assert!(account.withdraw(2, Decimal::new(-50, 0)).is_ok());
+            assert_eq!(account.total, initial_total);
+
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_dispute_already_disputed_transaction_ignored() {
+            // Arrange
+            let mut account = create_test_account(1);
+            account.deposit(1, Decimal::new(100, 0)).unwrap();
+            account.dispute(1).unwrap();
+            let state_after_first_dispute = (account.total, account.held, account.available);
+
+            // Act - try to dispute again
+            assert!(account.dispute(1).is_ok());
+
+            // Assert - state should be unchanged
+            assert_eq!(
+                (account.total, account.held, account.available),
+                state_after_first_dispute
+            );
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_resolve_non_disputed_transaction_ignored() {
+            // Arrange
+            let mut account = create_account_with_balance(1, 100, 50);
+            let initial_state = (account.total, account.held, account.available);
+
+            // Act
+            assert!(account.resolve(999).is_ok()); // Non-existent transaction
+
+            // Assert
+            assert_eq!(
+                (account.total, account.held, account.available),
+                initial_state
+            );
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_chargeback_non_disputed_transaction_ignored() {
+            // Arrange
+            let mut account = create_account_with_balance(1, 100, 0);
+            let initial_state = (
+                account.total,
+                account.held,
+                account.available,
+                account.locked,
+            );
+
+            // Act
+            assert!(account.chargeback(999).is_ok()); // Non-existent transaction
+
+            // Assert
+            assert_eq!(
+                (
+                    account.total,
+                    account.held,
+                    account.available,
+                    account.locked
+                ),
+                initial_state
+            );
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_deposit_to_disputed_transaction_id_ignored() {
+            // Arrange
+            let mut account = create_test_account(1);
+            account.deposit(1, Decimal::new(100, 0)).unwrap();
+            account.dispute(1).unwrap();
+            let balance_before = account.total;
+
+            // Act - try to deposit to disputed transaction ID
+            assert!(account.deposit(1, Decimal::new(50, 0)).is_ok());
+
+            // Assert - should be ignored
+            assert_eq!(account.total, balance_before);
+            assert_account_invariants(&account);
+        }
+
+        #[test]
+        fn test_ledger_new_creates_empty_ledger() {
+            // Act
+            let ledger = Ledger::new();
+
+            // Assert
+            assert_eq!(ledger.client_count(), 0);
+        }
+
+        #[test]
+        fn test_ledger_default_creates_empty_ledger() {
+            // Act
+            let ledger = Ledger::default();
+
+            // Assert
+            assert_eq!(ledger.client_count(), 0);
+        }
+
+        #[test]
+        fn test_get_client_nonexistent_returns_none() {
+            // Arrange
+            let ledger = Ledger::new();
+
+            // Act & Assert
+            assert!(ledger.get_client(999).is_none());
+        }
+
+        #[test]
+        fn test_get_client_balance_nonexistent_returns_none() {
+            // Arrange
+            let ledger = Ledger::new();
+
+            // Act & Assert
+            assert!(ledger.get_client_balance(999).is_none());
+        }
+
+        #[test]
+        fn test_get_client_balance_returns_correct_values() {
+            // Arrange
+            let mut ledger = Ledger::new();
+            let transaction = crate::Transaction {
+                transaction_type: crate::TransactionType::Deposit,
+                client: 1,
+                tx_id: 1,
+                amount: Some(Decimal::new(100, 0)),
+            };
+            ledger.process_transaction(transaction).unwrap();
+
+            // Act
+            let balance = ledger.get_client_balance(1);
+
+            // Assert
+            assert!(balance.is_some());
+            let (total, held, available) = balance.unwrap();
+            assert_eq!(total, Decimal::new(100, 0));
+            assert_eq!(held, Decimal::ZERO);
+            assert_eq!(available, Decimal::new(100, 0));
+        }
+
+        #[test]
+        fn test_iter_clients() {
+            // Arrange
+            let mut ledger = Ledger::new();
+            let transaction1 = crate::Transaction {
+                transaction_type: crate::TransactionType::Deposit,
+                client: 1,
+                tx_id: 1,
+                amount: Some(Decimal::new(100, 0)),
+            };
+            let transaction2 = crate::Transaction {
+                transaction_type: crate::TransactionType::Deposit,
+                client: 2,
+                tx_id: 2,
+                amount: Some(Decimal::new(200, 0)),
+            };
+            ledger.process_transaction(transaction1).unwrap();
+            ledger.process_transaction(transaction2).unwrap();
+
+            // Act
+            let clients: Vec<_> = ledger.iter_clients().collect();
+
+            // Assert
+            assert_eq!(clients.len(), 2);
+            assert_eq!(ledger.client_count(), 2);
+        }
+
+        #[test]
+        fn test_process_transaction_locked_client_ignored() {
+            // Arrange
+            let mut ledger = Ledger::new();
+
+            // First deposit and chargeback to lock the account
+            let deposit = crate::Transaction {
+                transaction_type: crate::TransactionType::Deposit,
+                client: 1,
+                tx_id: 1,
+                amount: Some(Decimal::new(100, 0)),
+            };
+            let dispute = crate::Transaction {
+                transaction_type: crate::TransactionType::Dispute,
+                client: 1,
+                tx_id: 1,
+                amount: None,
+            };
+            let chargeback = crate::Transaction {
+                transaction_type: crate::TransactionType::Chargeback,
+                client: 1,
+                tx_id: 1,
+                amount: None,
+            };
+
+            ledger.process_transaction(deposit).unwrap();
+            ledger.process_transaction(dispute).unwrap();
+            ledger.process_transaction(chargeback).unwrap();
+
+            let client = ledger.get_client(1).unwrap();
+            assert!(client.is_locked());
+            let balance_before = client.total();
+
+            // Try to process another transaction on locked account
+            let another_deposit = crate::Transaction {
+                transaction_type: crate::TransactionType::Deposit,
+                client: 1,
+                tx_id: 2,
+                amount: Some(Decimal::new(50, 0)),
+            };
+
+            // Act
+            ledger.process_transaction(another_deposit).unwrap();
+
+            // Assert - balance should be unchanged
+            let client_after = ledger.get_client(1).unwrap();
+            assert_eq!(client_after.total(), balance_before);
+            assert!(client_after.is_locked());
+        }
+
+        #[test]
+        fn test_from_csv_reader_with_malformed_data() {
+            // Arrange
+            let csv_data = "
+                type,client,tx,amount
+                deposit,1,1,100
+                invalid_row_with_missing_data
+                withdrawal,1,2,50";
+            let csv_bytes = csv_data.as_bytes();
+            let reader = crate::csv_reader(csv_bytes);
+
+            // Act
+            let result = Ledger::from_csv_reader(reader);
+
+            // Assert - should succeed and skip malformed rows
+            assert!(result.is_ok());
+            let ledger = result.unwrap();
+            let client = ledger.get_client(1).unwrap();
+            assert_eq!(client.total(), Decimal::new(50, 0)); // 100 - 50
+        }
     }
 
     // Property-Based Testing
