@@ -47,6 +47,7 @@ The system consists of several key components:
 - **Disputes only apply to deposits**: Only deposit transactions can be disputed (withdrawals cannot be disputed)
 - **Chargebacks immediately lock accounts**: Any chargeback permanently locks the client account
 - **Disputes must exist before resolution/chargeback**: Resolve and chargeback operations require the transaction to be in disputed state
+- **Total** can 
 
 ### Technical Implementation
 - **Banker's rounding is used for all calculations**: Uses `MidpointNearestEven` rounding strategy for decimal operations
@@ -66,7 +67,8 @@ The codebase includes comprehensive testing:
 Key invariants tested:
 - `available = total - held`
 - `total >= 0`, `held >= 0`
-- `available >= 0`
+- `available` can go into negative if a dispute chargeback occurs. (Real world systems can enforce a hold on funds preventing withdrawal for a certain number of days)
+
 
 
 
