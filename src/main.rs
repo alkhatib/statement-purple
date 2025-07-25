@@ -18,10 +18,9 @@ fn main() -> Result<()> {
     let ledger = Ledger::from_csv_reader(transaction_reader)?;
 
     // Example: Print client balances
-    for (client_id, _) in ledger.iter_clients() {
-        if let Some((total, held)) = ledger.get_client_balance(*client_id) {
-            println!("Client {client_id}: Total: {total}, Held: {held}");
-        }
+    for client_account in ledger.iter_clients() {
+        // TODO: Implement Display and Serialization
+        println!("{client_account:?}");
     }
 
     Ok(())
