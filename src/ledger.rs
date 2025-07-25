@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fmt::Display, io::Read};
+use rustc_hash::FxHashMap;
+use std::{fmt::Display, io::Read};
 
 use rust_decimal::{Decimal, RoundingStrategy::MidpointNearestEven};
 
@@ -8,15 +9,15 @@ const DECIMAL_PRECISION: u32 = 4;
 
 #[derive(Debug)]
 struct ClientTransactions {
-    disputable: HashMap<u32, Decimal>, // tx_id -> amount
-    disputed: HashMap<u32, Decimal>,   // tx_id -> amount
+    disputable: FxHashMap<u32, Decimal>, // tx_id -> amount
+    disputed: FxHashMap<u32, Decimal>,   // tx_id -> amount
 }
 
 impl ClientTransactions {
     fn new() -> Self {
         ClientTransactions {
-            disputable: HashMap::new(),
-            disputed: HashMap::new(),
+            disputable: FxHashMap::default(),
+            disputed: FxHashMap::default(),
         }
     }
 }
@@ -176,7 +177,7 @@ impl ClientAccount {
     }
 }
 
-type ClientMap = HashMap<u16, ClientAccount>;
+type ClientMap = FxHashMap<u16, ClientAccount>;
 
 pub struct Ledger {
     clients: ClientMap,
@@ -191,7 +192,7 @@ impl Default for Ledger {
 impl Ledger {
     pub fn new() -> Self {
         Ledger {
-            clients: ClientMap::new(),
+            clients: ClientMap::default(),
         }
     }
 
