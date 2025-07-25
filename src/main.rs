@@ -17,12 +17,12 @@ fn main() -> Result<()> {
 
     let ledger = Ledger::from_csv_reader(transaction_reader)?;
 
-    // Example: Print client balances
+    // Write client accounts to CSV output
+    let mut writer = csv::Writer::from_writer(std::io::stdout());
     for client_account in ledger.iter_clients() {
-        println!("{client_account}");
+        writer.serialize(client_account)?;
     }
-
-    // TODO: Write to CSV output
+    writer.flush()?;
 
     Ok(())
 }

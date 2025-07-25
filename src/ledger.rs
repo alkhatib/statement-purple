@@ -22,9 +22,9 @@ impl ClientTransactions {
 #[derive(Debug, serde::Serialize)]
 pub struct ClientAccount {
     client: u16,
-    total: Decimal,
-    held: Decimal,
     available: Decimal,
+    held: Decimal,
+    total: Decimal,
     locked: bool,
     #[serde(skip)] // Private do not serialize TODO: Separate Output Struct
     transactions: ClientTransactions,
@@ -176,11 +176,11 @@ impl Ledger {
         for result in reader.deserialize::<Transaction>() {
             match result {
                 Ok(transaction) => {
-                    println!("{transaction:?}");
                     ledger.process_transaction(transaction)?;
                 }
                 Err(_) => {
-                    println!("error")
+                    // This is where we can handle any incorrect CSV data
+                    // either by logging or metrics tracking
                 }
             }
         }
