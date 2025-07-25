@@ -242,7 +242,8 @@ mod tests {
 
     #[test]
     fn test_add_deposit_transaction_to_account() {
-        let csv_data = "type,client,tx,amount
+        let csv_data = "
+            type,client,tx,amount
             deposit,1,1,1";
         let csv_bytes = csv_data.as_bytes();
 
@@ -250,11 +251,58 @@ mod tests {
 
         let ledger = Ledger::from_csv_reader(reader).unwrap();
         assert_eq!(ledger.get_client(1).unwrap().total, Decimal::new(1, 0));
+        assert_eq!(ledger.get_client(1).unwrap().transactions.disputable.len(), 1);
         assert_account_invariants(&ledger.get_client(1).unwrap());
     }
 
     #[test]
-    fn test_failing_test() {
-        assert!(false, "implement tests for all Transaction types")
+    fn test_withdrawal_transaction_to_account() {
+        let csv_data = "
+            type,client,tx,amount
+            deposit,1,1,10
+            withdrawal,1,1,5";
+        let csv_bytes = csv_data.as_bytes();
+
+        let reader = crate::csv_reader(csv_bytes);
+
+        let ledger = Ledger::from_csv_reader(reader).unwrap();
+        assert_eq!(ledger.get_client(1).unwrap().available, Decimal::new(5, 0));
+        assert_account_invariants(&ledger.get_client(1).unwrap());
+    }
+
+    #[test]
+    fn test_dispute_transaction_to_account() {
+        let csv_data = "
+            type,client,tx,amount
+            deposit,1,1,10
+            dispute,1,1";
+        let csv_bytes = csv_data.as_bytes();
+
+        let reader = crate::csv_reader(csv_bytes);
+
+        let ledger = Ledger::from_csv_reader(reader).unwrap();
+        assert_eq!(ledger.get_client(1).unwrap().held, Decimal::new(10, 0));
+        assert_eq!(ledger.get_client(1).unwrap().transactions.disputable.len(), 0);
+        assert_eq!(ledger.get_client(1).unwrap().transactions.disputed.len(), 1);
+        assert_account_invariants(&ledger.get_client(1).unwrap());
+    }
+
+    #[test]
+    fn test_resolve_transaction_to_account() {
+        let csv_data = "
+            type,client,tx,amount
+            deposit,1,1,10
+            dispute,1,1
+            resolve,1,1";
+
+        let csv_bytes = csv_data.as_bytes();
+
+        let reader = crate::csv_reader(csv_bytes);
+
+        let ledger = Ledger::from_csv_reader(reader).unwrap();
+        assert_eq!(ledger.get_client(1).unwrap().held, Decimal::new(0, 0));
+        assert_eq!(ledger.get_client(1).unwrap().transactions.disputable.len(), 1);
+        assert_account_invariants(&ledger.get_client(1).unwrap());
     }
 }
+
